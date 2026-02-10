@@ -1,0 +1,172 @@
+[
+  {
+    "job_id": "1",
+    "job_title": "Full-stack Web3 Engineer",
+    "company": "CryptoXYZ",
+    "score": 0.85,
+    "location": "Remote",
+    "description": "We are looking for an experienced Full-stack Engineer with Web3 expertise. You will work on building decentralized applications using React, Next.js, and smart contracts.",
+    "requirements": [
+      "3+ years of React/Next.js development experience",
+      "Experience with Web3.js or Ethers.js",
+      "Understanding of blockchain technology",
+      "Proficiency in Solidity for smart contracts"
+    ],
+    "skills": ["React", "Next.js", "Web3", "Solidity", "TypeScript", "Node.js"],
+    "salary_range": "$120k - $180k",
+    "posted_date": "2026-02-01"
+  },
+  {
+    "job_id": "2",
+    "job_title": "Senior ML Engineer",
+    "company": "AI Labs",
+    "score": 0.72,
+    "location": "San Francisco, CA",
+    "description": "Join our team to build cutting-edge machine learning models for natural language processing and computer vision applications.",
+    "requirements": [
+      "5+ years of ML/AI experience",
+      "Strong background in PyTorch or TensorFlow",
+      "Experience with NLP and transformers",
+      "PhD in Computer Science or related field preferred"
+    ],
+    "skills": ["Python", "PyTorch", "TensorFlow", "NLP", "Computer Vision", "MLOps"],
+    "salary_range": "$150k - $220k",
+    "posted_date": "2026-01-28"
+  },
+  {
+    "job_id": "3",
+    "job_title": "Backend Engineer - Python",
+    "company": "TechCorp",
+    "score": 0.78,
+    "location": "New York, NY",
+    "description": "We need a talented Backend Engineer to design and implement scalable microservices using Python and FastAPI.",
+    "requirements": [
+      "4+ years of Python backend development",
+      "Experience with FastAPI or Django",
+      "Strong understanding of RESTful APIs",
+      "Experience with PostgreSQL and Redis"
+    ],
+    "skills": ["Python", "FastAPI", "PostgreSQL", "Redis", "Docker", "Kubernetes"],
+    "salary_range": "$130k - $170k",
+    "posted_date": "2026-02-05"
+  },
+  {
+    "job_id": "4",
+    "job_title": "Frontend Developer - React",
+    "company": "StartupHub",
+    "score": 0.81,
+    "location": "Austin, TX",
+    "description": "Looking for a passionate Frontend Developer to create beautiful, responsive user interfaces using modern React ecosystem.",
+    "requirements": [
+      "3+ years of React development",
+      "Strong CSS and responsive design skills",
+      "Experience with state management (Redux/Zustand)",
+      "Familiar with modern build tools (Vite/Webpack)"
+    ],
+    "skills": ["React", "TypeScript", "CSS", "Redux", "Vite", "Tailwind CSS"],
+    "salary_range": "$100k - $140k",
+    "posted_date": "2026-02-03"
+  },
+  {
+    "job_id": "5",
+    "job_title": "DevOps Engineer",
+    "company": "CloudNative Inc",
+    "score": 0.68,
+    "location": "Seattle, WA",
+    "description": "Seeking a DevOps Engineer to manage our cloud infrastructure and implement CI/CD pipelines for rapid deployment.",
+    "requirements": [
+      "4+ years of DevOps experience",
+      "Strong knowledge of AWS/GCP/Azure",
+      "Experience with Terraform and Ansible",
+      "Proficient in containerization and orchestration"
+    ],
+    "skills": ["AWS", "Docker", "Kubernetes", "Terraform", "Jenkins", "Python"],
+    "salary_range": "$140k - $190k",
+    "posted_date": "2026-01-30"
+  },
+  {
+    "job_id": "6",
+    "job_title": "Data Scientist",
+    "company": "DataDriven Analytics",
+    "score": 0.75,
+    "location": "Boston, MA",
+    "description": "Join our data science team to extract insights from large datasets and build predictive models for business decisions.",
+    "requirements": [
+      "3+ years of data science experience",
+      "Strong statistical analysis skills",
+      "Experience with Python data stack (Pandas, NumPy, Scikit-learn)",
+      "Excellent communication skills for stakeholder presentations"
+    ],
+    "skills": ["Python", "R", "SQL", "Pandas", "Scikit-learn", "Tableau", "Statistics"],
+    "salary_range": "$120k - $160k",
+    "posted_date": "2026-02-07"
+  },
+  {
+    "job_id": "7",
+    "job_title": "Mobile Developer - React Native",
+    "company": "MobileFirst Solutions",
+    "score": 0.79,
+    "location": "Los Angeles, CA",
+    "description": "We're building the next generation of mobile apps. Join us to create cross-platform applications using React Native.",
+    "requirements": [
+      "3+ years of mobile development",
+      "Strong React Native experience",
+      "Published apps on App Store and Google Play",
+      "Experience with native modules (iOS/Android)"
+    ],
+    "skills": ["React Native", "JavaScript", "TypeScript", "iOS", "Android", "Redux"],
+    "salary_range": "$110k - $150k",
+    "posted_date": "2026-02-04"
+  },
+  {
+    "job_id": "8",
+    "job_title": "Blockchain Developer",
+    "company": "DeFi Solutions",
+    "score": 0.88,
+    "location": "Remote",
+    "description": "Build decentralized finance protocols and smart contracts. We're looking for someone passionate about blockchain technology.",
+    "requirements": [
+      "2+ years of blockchain development",
+      "Expert in Solidity and smart contract security",
+      "Experience with DeFi protocols (Uniswap, Aave, etc.)",
+      "Understanding of cryptographic principles"
+    ],
+    "skills": ["Solidity", "Web3.js", "Ethereum", "Hardhat", "JavaScript", "Security Auditing"],
+    "salary_range": "$130k - $200k",
+    "posted_date": "2026-01-25"
+  },
+  {
+    "job_id": "9",
+    "job_title": "AI Research Scientist",
+    "company": "Research AI Institute",
+    "score": 0.65,
+    "location": "Cambridge, MA",
+    "description": "Conduct cutting-edge research in deep learning and publish in top-tier conferences. Work on LLMs and multi-modal models.",
+    "requirements": [
+      "PhD in Computer Science, AI, or related field",
+      "Publications in NeurIPS, ICML, or ICLR",
+      "Deep understanding of transformer architectures",
+      "Experience with large-scale model training"
+    ],
+    "skills": ["PyTorch", "Python", "Deep Learning", "NLP", "LLMs", "Research", "CUDA"],
+    "salary_range": "$180k - $250k",
+    "posted_date": "2026-02-02"
+  },
+  {
+    "job_id": "10",
+    "job_title": "Full Stack Engineer - MERN",
+    "company": "WebScale Ventures",
+    "score": 0.83,
+    "location": "Denver, CO",
+    "description": "Build and maintain web applications using the MERN stack. Work on both frontend and backend features in an agile environment.",
+    "requirements": [
+      "4+ years of full-stack development",
+      "Strong experience with MongoDB, Express, React, Node.js",
+      "Experience with RESTful and GraphQL APIs",
+      "Knowledge of testing frameworks (Jest, Cypress)"
+    ],
+    "skills": ["MongoDB", "Express.js", "React", "Node.js", "GraphQL", "Jest", "TypeScript"],
+    "salary_range": "$115k - $155k",
+    "posted_date": "2026-02-06"
+  }
+]
