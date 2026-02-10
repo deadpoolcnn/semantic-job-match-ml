@@ -1,4 +1,5 @@
 import os
+import asyncio
 from typing import List, Dict, Any
 
 from google import genai
@@ -10,6 +11,33 @@ GEMINI_API_KEY = get_gemini_api_key()
 GEMINI_MODEL = get_gemini_model()
 
 client = genai.Client(api_key=GEMINI_API_KEY)
+
+async def _explain_single_job(resume_text: str, job: Dict[str, Any]) -> Dict[str, Any]:
+    """异步处理单个 job"""
+    prompt = _build_prompt(resume_text, job)
+    # 在 线程池 中执行
+    response = response = await asyncio.get_event_loop().run_in_executor(
+        None,
+        lambda: client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=prompt,
+            config=genai_types.GenerateContentConfig(
+                temperature=0.2,
+                response_mime_type="application/json"
+            )
+        )
+    )
+    content = response.text or "{}"
+    why_match, skill_gaps = _parse_llm_response(content)
+    job_with_explanation = job.copy()
+    job_with_explanation["why_match"] = why_match
+    job_with_explanation["skill_gaps"] = skill_gaps
+    return job_with_explanation
+async def explain_match_loop(resume_text: str, jobs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    # ✅ 并发处理所有 job（大幅提升速度）
+    tasks = [_explain_single_job(resume_text, job) for job in jobs]
+    explained = await asyncio.gather(*tasks)
+    return list(explained)
 
 async def explain_match(
     resume_text: str,

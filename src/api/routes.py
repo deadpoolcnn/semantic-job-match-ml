@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 from typing import List, Dict, Any
 from src.services.job_loader import load_jobs
 from src.models.matcher import get_job_matcher
-from src.services.llm_explainer_service import explain_match
+from src.services.llm_explainer_service import explain_match_loop
 
 router = APIRouter(prefix="/api", tags=["match"])
 
@@ -34,7 +34,7 @@ async def match_resume(resume_input: ResumeInput):
     # 返回的是字典类型数组
     matched_jobs = matcher.semantic_match(resume_input.resume_text, top_k=resume_input.top_k)
     # 1. 调用 LLM 生成匹配解释（可以并行化）
-    explain_jobs = await explain_match(resume_input.resume_text, matched_jobs)
+    explain_jobs = await explain_match_loop(resume_input.resume_text, matched_jobs)
     # 2. 转为 API schema输出
     matches = [
         JobMatch(
