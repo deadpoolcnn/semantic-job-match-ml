@@ -3,6 +3,7 @@ from pydantic import BaseModel, Field
 from typing import List, Dict, Any
 from src.services.job_loader import load_jobs
 from src.models.matcher import get_job_matcher
+from src.services.llm_explainer_service import explain_match
 
 router = APIRouter(prefix="/api", tags=["match"])
 
@@ -28,22 +29,22 @@ async def match_resume(resume_input: ResumeInput):
     """
     语义匹配接口：输入简历文本，输出 Top-K 岗位 + 解释
     """
-    # TODO: 这里后面接入你的 models/matcher.py
-    # 目前先 mock 数据（模拟你的 FAISS + LLM 结果）
     matcher = get_job_matcher() # 获取全局单例的 JobMatcher 实例
     # 语义top-K匹配，返回岗位信息和匹配分数
     # 返回的是字典类型数组
     matched_jobs = matcher.semantic_match(resume_input.resume_text, top_k=resume_input.top_k)
-    # 2. 转为 API schema（先不用 LLM，why_match & skill_gaps 先占位）
+    # 1. 调用 LLM 生成匹配解释（可以并行化）
+    explain_jobs = await explain_match(resume_input.resume_text, matched_jobs)
+    # 2. 转为 API schema输出
     matches = [
         JobMatch(
             job_id=job.get("job_id", str(idx)),
             job_title=job.get("job_title", ""),
             company=job.get("company", ""),
             score=job.get("score", 0.0),
-            why_match=["匹配原因示例1", "匹配原因示例2"], # TODO: 后续接入 LLM 生成匹配解释
-            skill_gaps=["技能差距示例1", "技能差距示例2"] # TODO: 后续接入 LLM 生成技能差距分析
+            why_match=job.get("why_match", []), 
+            skill_gaps=job.get("skill_gaps", [])
         )
-        for idx, job in enumerate(matched_jobs)
+        for idx, job in enumerate(explain_jobs)
     ]
     return MatchResponse(matches=matches)

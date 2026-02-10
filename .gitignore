@@ -67,3 +67,6 @@ dmypy.json
 .DS_Store
 .AppleDouble
 .LSOverride
+
+*.pyc
+__pycache__/
