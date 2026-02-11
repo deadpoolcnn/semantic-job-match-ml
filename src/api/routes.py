@@ -18,6 +18,9 @@ class JobMatch(BaseModel):
     job_title: str
     company: str
     score: float = Field(..., ge=0.0, le=1.0, description="匹配分数")
+    semantic_score: float | None = None
+    skill_overlap: float | None = None
+    rule_bonus: float | None = None
     why_match: List[str] = Field(default_factory=list)
     skill_gaps: List[str] = Field(default_factory=list)
 
@@ -42,6 +45,9 @@ async def match_resume(resume_input: ResumeInput):
             job_title=job.get("job_title", ""),
             company=job.get("company", ""),
             score=job.get("score", 0.0),
+            semantic_score=job.get("semantic_score"),
+            skill_overlap=job.get("skill_overlap"),
+            rule_bonus=job.get("rule_bonus"),
             why_match=job.get("why_match", []), 
             skill_gaps=job.get("skill_gaps", [])
         )
