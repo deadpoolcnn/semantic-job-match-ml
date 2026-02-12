@@ -1,5 +1,8 @@
 # src/api/main.py
 
+# ✅ 最优先：确保 NLTK 数据已下载
+import src.core.nltk_init  # noqa: F401
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from src.api.routes import router  # 导入路由
