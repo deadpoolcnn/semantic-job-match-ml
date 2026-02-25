@@ -1,21 +1,19 @@
-from typing import Set
-from pathlib import Path
-from typing import Dict, Any
-import tempfile
+from typing import Set, Dict, Any
 import io
+import json
 import pdfplumber
+from openai import OpenAI
 
-from google import genai
-from google.genai import types as genai_types
+from src.core.config import get_moonshot_api_key, get_moonshot_model
 
-from src.core.config import get_gemini_api_key, get_gemini_model
+_client = OpenAI(
+    api_key=get_moonshot_api_key(),
+    base_url="https://api.moonshot.ai/v1",
+)
+MOONSHOT_MODEL = get_moonshot_model()
 
-GEMINI_API_KEY = get_gemini_api_key()
-GEMINI_MODEL = get_gemini_model()
-
-client = genai.Client(api_key=GEMINI_API_KEY)
-
-# TODO: 这个模块的功能是从简历文本中提取技能关键词，目前实现非常简单，后续可以考虑用更复杂的 NLP 模型来做（比如基于 LLM 的信息抽取）
+# TODO: Extract skill keywords from resume text. Currently a simple keyword lookup;
+# consider replacing with a proper NLP/LLM-based extractor.
 KNOWN_SKILLS: Set[str] = {
     "react", "next.js", "nextjs", "node.js", "node", "typescript",
     "python", "pytorch", "tensorflow", "solidity", "web3", "rust",
@@ -23,10 +21,7 @@ KNOWN_SKILLS: Set[str] = {
 }
 
 def extract_skills_from_resume(resume_text: str) -> Set[str]:
-    """
-    从简历文本中提取技能关键词，目前实现非常简单，就是在文本中查找已知技能列表中的词
-    后续可以考虑用更复杂的 NLP 模型来做（比如基于 LLM 的信息抽取）
-    """
+    """Extract skill keywords from resume text via simple keyword matching."""
     resume_text = resume_text.lower()
     found = set()
     for skill in KNOWN_SKILLS:
@@ -35,38 +30,35 @@ def extract_skills_from_resume(resume_text: str) -> Set[str]:
     return found
 
 def extract_text_from_pdf(file_bytes: bytes) -> str:
-    """
-    从 PDF 文件的二进制内容中提取文本，目前使用 pdfplumber 库实现
-    """
+    """Extract plain text from PDF bytes using pdfplumber."""
     textchunk = []
     with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
         for page in pdf.pages:
             textchunk.append(page.extract_text())
     return "\n".join(textchunk).strip()
 
-def parse_resume_file(file_bytes: bytes, filename: str) -> str:
+def parse_resume_file(file_bytes: bytes, filename: str) -> dict:
     """
-    新版解析：pdfplumber 抽原文 + Gemini 结构化解析。
-    输出结构保持和之前类似：
-      {
-        "text": "...用于 embedding 的简历摘要...",
-        "skills": [...],
-        "raw": {...}   # LLM 返回的完整 JSON
-      }
+    Parse a resume file: extract raw text with pdfplumber, then call
+    Moonshot Kimi for structured JSON extraction.
+    Returns: {"text": <embedding-ready summary>, "skills": <set>, "raw": <full LLM JSON>}
     """
     raw_text = extract_text_from_pdf(file_bytes)
     if not raw_text:
-        raise ValueError("无法从 PDF 中提取文本，可能是扫描件或加密文件")
-    # 2. 调 Gemini 做结构化解析（JSON 输出）
-    gemini_json = _call_gemini_for_structured_resume(raw_text)
-    # 3. 从 Gemini 输出中提取技能关键词（如果有的话）
+        raise ValueError("No text extracted from PDF. The file may be scanned or encrypted.")
+    # 2. Call Moonshot for structured JSON extraction
+    gemini_json = _call_moonshot_for_structured_resume(raw_text)
+    # 3. Unpack structured fields from Moonshot response
     name = gemini_json.get("name", "")
     email = gemini_json.get("email", "")
     skills = set(gemini_json.get("skills", []))
     total_exp_years = gemini_json.get("total_experience_years")
     current_title = gemini_json.get("current_title", "")
     summary = gemini_json.get("summary", "")
-    # 4. 构造用于 embedding 的简历摘要文本（可以根据需要调整格式）
+    seniority = gemini_json.get("seniority")
+    culture_keywords = gemini_json.get("culture_keywords", [])
+    expected_salary = gemini_json.get("expected_salary")
+    # 4. Build embedding-ready resume summary
     parts = [
         f"Name: {name}" if name else "",
         f"Email: {email}" if email else "",
@@ -80,49 +72,53 @@ def parse_resume_file(file_bytes: bytes, filename: str) -> str:
     return {
         "text": resume_text,
         "skills": skills,
-        "raw": gemini_json,
+        "raw": {
+            **gemini_json,
+            "experience_years": total_exp_years,    # consumed by build_candidate_profile
+            "seniority": seniority,
+            "culture_keywords": culture_keywords,
+            "expected_salary": expected_salary,
+        },
     }
 
-def _call_gemini_for_structured_resume(raw_text: str) -> Dict[str, Any]:
-    """
-    调用 Gemini 生成式模型，输入简历原文，输出结构化的 JSON 数据
-    这里的 prompt 设计非常关键，可以根据需要调整以获得更准确的解析结果
-    """
-    prompt = f"""
-    You are a resume parsing assistant. 
-    Extract key structured information from the following resume text.
+def _call_moonshot_for_structured_resume(raw_text: str) -> Dict[str, Any]:
+    """Call Moonshot Kimi to extract structured JSON from raw resume text."""
+    prompt = f"""You are a professional resume parsing assistant.
+Extract key structured information from the resume text below.
 
-    简历文本：
-    \"\"\"{raw_text}\"\"\"
+Resume text:
+\"\"\"{raw_text}\"\"\"
 
-    请严格以 JSON 格式输出，不要添加多余说明，字段包括：
-    {{
-        "name": "Candidate's full name (if identifiable)",
-        "email": "Email address (if found)",
-        "phone": "Phone number (if found)",
-        "current_title": "Current or most recent job title",
-        "total_experience_years": 3.5,
-        "skills": ["React", "Next.js", "Node.js", "Python"],
-        "summary": "Brief professional summary in one sentence or short paragraph"
-    }}
-    """.strip()
-    
-    response = client.models.generate_content(
-        model=GEMINI_MODEL,
-        contents=prompt,
-        config=genai_types.GenerateContentConfig(
-            temperature=0.2,
-            response_mime_type="application/json" # 直接让 Gemini 输出 JSON，便于解析
-        )
+Respond with ONLY a valid JSON object, no extra explanation. Required fields:
+{{
+    "name": "Candidate full name (if identifiable, else empty string)",
+    "email": "Email address (if found, else empty string)",
+    "phone": "Phone number (if found, else empty string)",
+    "current_title": "Current or most recent job title",
+    "total_experience_years": 3.5,
+    "skills": ["React", "Next.js", "Node.js", "Python"],
+    "summary": "One-sentence or short-paragraph professional summary",
+    "seniority": "Inferred level: intern | junior | mid | senior | staff | manager | director",
+    "culture_keywords": ["remote", "collaborative", "fast-paced"],
+    "expected_salary": {{"min": 120000, "max": 150000, "currency": "USD", "period": "annual"}}
+}}"""
+
+    response = _client.chat.completions.create(
+        model=MOONSHOT_MODEL,
+        messages=[
+            {"role": "system", "content": "You are a professional resume parsing assistant. Output only valid JSON, nothing else."},
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.1,
+        response_format={"type": "json_object"},
     )
-    import json
     try:
-        content = response.text or "{}"
+        content = response.choices[0].message.content or "{}"
         data = json.loads(content)
         if not isinstance(data, dict):
-            raise ValueError("Gemini 输出的 JSON 不是一个对象")
+            raise ValueError("Moonshot response is not a JSON object.")
         return data
-    except json.JSONDecodeError as e:
+    except json.JSONDecodeError:
         return {
             "name": "",
             "email": "",
@@ -131,6 +127,8 @@ def _call_gemini_for_structured_resume(raw_text: str) -> Dict[str, Any]:
             "total_experience_years": None,
             "skills": [],
             "summary": "",
-            "raw_text_fallback": raw_text,
+            "seniority": None,
+            "culture_keywords": [],
+            "expected_salary": None,
         }
     

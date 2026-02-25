@@ -1,83 +1,57 @@
-import os
 import asyncio
 from typing import List, Dict, Any
 
-from google import genai
-from google.genai import types as genai_types
+from openai import AsyncOpenAI
 
-from src.core.config import get_gemini_api_key, get_gemini_model
+from src.core.config import get_moonshot_api_key, get_moonshot_model
 
-GEMINI_API_KEY = get_gemini_api_key()
-GEMINI_MODEL = get_gemini_model()
+_client = AsyncOpenAI(
+    api_key=get_moonshot_api_key(),
+    base_url="https://api.moonshot.ai/v1",
+)
+MOONSHOT_MODEL = get_moonshot_model()
 
-client = genai.Client(api_key=GEMINI_API_KEY)
 
 async def _explain_single_job(resume_text: str, job: Dict[str, Any]) -> Dict[str, Any]:
-    """异步处理单个 job"""
+    """Asynchronously generate match explanation for a single job."""
     prompt = _build_prompt(resume_text, job)
-    # 在 线程池 中执行
-    response = response = await asyncio.get_event_loop().run_in_executor(
-        None,
-        lambda: client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=prompt,
-            config=genai_types.GenerateContentConfig(
-                temperature=0.2,
-                response_mime_type="application/json"
-            )
-        )
+    response = await _client.chat.completions.create(
+        model=MOONSHOT_MODEL,
+        messages=[
+            {"role": "system", "content": "You are a technical recruitment assistant. Always respond with valid JSON only, no extra text."},
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.2,
+        response_format={"type": "json_object"},
     )
-    content = response.text or "{}"
+    content = response.choices[0].message.content or "{}"
     why_match, skill_gaps = _parse_llm_response(content)
     job_with_explanation = job.copy()
     job_with_explanation["why_match"] = why_match
     job_with_explanation["skill_gaps"] = skill_gaps
     return job_with_explanation
+
+
 async def explain_match_loop(resume_text: str, jobs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    # ✅ 并发处理所有 job（大幅提升速度）
+    """Concurrently explain all matched jobs."""
     tasks = [_explain_single_job(resume_text, job) for job in jobs]
     explained = await asyncio.gather(*tasks)
     return list(explained)
 
+
 async def explain_match(
     resume_text: str,
     jobs: List[Dict[str, Any]]
-) -> Dict[str, Any]:
-    """
-    输入：原始简历文本 + 语义匹配出来的 job 列表（含 title/skills/description/score）
-    输出：在每个 job dict 上加 why_match / skill_gaps 字段
-    """
-    explained: List[Dict[str, Any]] = []
-
-    # 简单版：逐个岗位调用一次 Gemini（Top-K 不要太大，控制在 3–5）
-    for job in jobs:
-        prompt = _build_prompt(resume_text, job)
-        response = client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=prompt,
-            config=genai_types.GenerateContentConfig(
-                temperature=0.2,
-                response_mime_type="application/json" # 直接让 Gemini 输出 JSON，便于解析
-            )
-        )
-        content = response.text or "{}"
-        why_match, skill_gaps = _parse_llm_response(content)
-        job_with_explanation = job.copy()
-        job_with_explanation["why_match"] = why_match
-        job_with_explanation["skill_gaps"] = skill_gaps
-        explained.append(job_with_explanation)
-    return explained
+) -> List[Dict[str, Any]]:
+    return await explain_match_loop(resume_text, jobs)
 
 def _build_prompt(resume_text: str, job: Dict[str, Any]) -> str:
-    """
-    构建给 LLM 的 prompt，包含简历文本和岗位信息
-    可以在这里设计一些提示词，引导 LLM 生成更有用的解释
-    """
+    """Build the LLM prompt containing resume and job information."""
     title = job.get("job_title", "")
     company = job.get("company", "")
     desc = job.get("description", "")
     requirements = job.get("requirements", "")
-    skills = job.get("skills", "")
+    skills = job.get("required_skills", [])
     score = job.get("score", 0.0)
 
     return f"""
@@ -101,9 +75,7 @@ def _build_prompt(resume_text: str, job: Dict[str, Any]) -> str:
     """.strip()
 
 def _parse_llm_response(content: str):
-    """
-    解析 LLM 输出的 JSON 内容，提取 why_match 和 skill_gaps
-    """
+    """Parse LLM JSON output and extract why_match and skill_gaps."""
     import json
     try:
         data = json.loads(content)
@@ -115,5 +87,4 @@ def _parse_llm_response(content: str):
             skill_gaps = [str(skill_gaps)]
         return why_match, skill_gaps
     except json.JSONDecodeError:
-        # 解析失败，返回空列表
-        return ["LLM 解释解析失败"], []
+        return ["Failed to parse LLM response."], []

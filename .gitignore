@@ -18,6 +18,7 @@ env/
 *.swo
 *~
 .DS_Store
+.github
 
 # Jupyter Notebook
 .ipynb_checkpoints
@@ -32,7 +33,6 @@ data/indices/jobs_meta.json
 
 # Hugging Face Cache
 .cache/
-models/
 
 # PyTorch/TensorFlow Models
 *.pt
