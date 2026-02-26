@@ -1,3 +1,11 @@
+"""
+Resume parsing service: extract text from PDF, then call Moonshot Kimi for structured JSON extraction.
+Returns a dict with "text" (embedding-ready resume summary), "skills" (set of skills), and "raw" (full LLM-extracted JSON with fields like name, email, seniority, expected salary, etc).
+简历解析服务：从 PDF 中提取文本，然后调用 Moonshot Kimi 进行结构化 JSON 提取。
+返回一个字典，包含“text”（可嵌入的简历摘要）、“skills”（技能列表）和“raw”
+（使用 LLM 提取的完整 JSON，包含姓名、电子邮件、资历、期望薪资等字段）。
+
+"""
 from typing import Set, Dict, Any
 import io
 import json
@@ -95,12 +103,21 @@ Respond with ONLY a valid JSON object, no extra explanation. Required fields:
     "email": "Email address (if found, else empty string)",
     "phone": "Phone number (if found, else empty string)",
     "current_title": "Current or most recent job title",
-    "total_experience_years": 3.5,
-    "skills": ["React", "Next.js", "Node.js", "Python"],
+    "experience_years": number,
+    "skills": ["string"],
+    "soft_skills": ["string"],
+    "education": [
+        {{
+        "school": "string",
+        "degree": "string",
+        "major": "string",
+        "year": number
+        }}
+    ],
     "summary": "One-sentence or short-paragraph professional summary",
     "seniority": "Inferred level: intern | junior | mid | senior | staff | manager | director",
     "culture_keywords": ["remote", "collaborative", "fast-paced"],
-    "expected_salary": {{"min": 120000, "max": 150000, "currency": "USD", "period": "annual"}}
+    "expected_salary": {{"min": number, "max": number, "currency": "USD", "period": "annual"}}
 }}"""
 
     response = _client.chat.completions.create(
@@ -124,8 +141,11 @@ Respond with ONLY a valid JSON object, no extra explanation. Required fields:
             "email": "",
             "phone": "",
             "current_title": "",
+            "experience_years": None,
             "total_experience_years": None,
             "skills": [],
+            "soft_skills": [],
+            "education": [],
             "summary": "",
             "seniority": None,
             "culture_keywords": [],

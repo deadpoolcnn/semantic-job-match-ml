@@ -30,7 +30,7 @@ def _parse_salary_string(salary_str: str) -> SalaryRange | None:
         return SalaryRange(min_salary=values[0] * 0.85, max_salary=values[0] * 1.15)
     return None
 
-
+# 将原始职位数据字典列表转换为标准化的 JobPosting 对象列表，是招聘匹配系统的职位数据标准化层。
 def jobs_to_postings(raw_jobs: list[dict]) -> list[JobPosting]:
     """Convert raw job dicts from job_loader into JobPosting objects."""
     postings = []

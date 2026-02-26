@@ -64,6 +64,10 @@ class FiveDimScorer:
         ThreadPoolExecutor causes PyTorch deadlocks when multiple threads
         call SentenceTransformer.encode() concurrently — run sequentially instead.
         Returns: list sorted by final_score descending.
+        批量评分（顺序执行）。
+        当多个线程并发调用 `SentenceTransformer.encode()` 时，`ThreadPoolExecutor` 会导致 PyTorch 死锁。
+        请改为顺序执行。
+        返回值：按 `final_score` 降序排列的列表。
         """
         results: list[FiveDimScore] = []
         for job in jobs:

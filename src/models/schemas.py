@@ -32,7 +32,9 @@ class CandidateProfile:
     expected_salary: Optional[SalaryRange] = None
     culture_keywords: list[str] = field(default_factory=list)  # 文化偏好关键词
     years_of_experience: Optional[float] = None
-
+    education: list[dict] = field(default_factory=list)
+    soft_skills: list[str] = field(default_factory=list)
+    career_objective: str = ""
 
 @dataclass
 class JobPosting:

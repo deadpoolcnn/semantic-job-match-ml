@@ -9,7 +9,8 @@ import torch
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from src.api.routes import router, get_five_dim_scorer  # 导入路由
+from src.api.routes import router, get_five_dim_scorer
+from src.api.routes_v2 import router_v2
 
 logger = logging.getLogger(__name__)
 
@@ -33,20 +34,25 @@ app.add_middleware(
 
 # 挂载路由
 app.include_router(router)
+app.include_router(router_v2)
 
 
 @app.on_event("startup")
-async def _prewarm_scorer():
+async def _prewarm():
     """
-    Pre-warm FiveDimScorer in a ThreadPoolExecutor thread at startup.
-    This ensures PyTorch model weights AND OMP threads are both initialized
-    inside a worker thread — matching the thread where score_batch() will run.
-    Avoids cross-thread OMP deadlock that occurs with lazy init in the event loop.
+    Pre-warm FiveDimScorer (PyTorch models) in executor thread.
+    Pre-warm JD cache (Moonshot LLM analysis) concurrently.
+    Both run at startup so the first real request pays zero cold-start cost.
     """
-    logger.info("[startup] Pre-warming FiveDimScorer in executor thread...")
+    from src.agents.job_analyzer_agent import prewarm as prewarm_jd_cache
+
+    logger.info("[startup] Pre-warming FiveDimScorer + JD cache...")
     loop = asyncio.get_event_loop()
-    await loop.run_in_executor(None, get_five_dim_scorer)
-    logger.info("[startup] FiveDimScorer pre-warm complete.")
+    await asyncio.gather(
+        loop.run_in_executor(None, get_five_dim_scorer),
+        prewarm_jd_cache(),
+    )
+    logger.info("[startup] Pre-warm complete.")
 
 
 @app.get("/")
