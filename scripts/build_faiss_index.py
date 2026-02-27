@@ -1,3 +1,9 @@
+"""
+构建 FAISS 索引的脚本，针对 job_mock.json 中的岗位数据进行向量化并保存索引和元信息。
+使用方法：
+    python scripts/build_faiss_index.py
+生成的索引文件和元信息将保存在 data/indices/ 目录下，供 Matcher 模块加载使用。
+"""
 from pathlib import Path
 import json
 from typing import List, Dict, Any

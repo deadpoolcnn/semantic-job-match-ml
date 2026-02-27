@@ -70,19 +70,73 @@ class AnalyzedJob:
 # ── Career Prediction ─────────────────────────────────────────────────────────
 
 @dataclass
+class DecisionGate:
+    """
+    A fork in the career path at a specific year.
+    Presents two concrete options with their long-term impact.
+    职业路径上的关键决策点，在特定年份出现，列出两条路线及其长期影响。
+    """
+    year: int
+    question: str                       # e.g. "Accept management track?"
+    option_A: str                       # IC路线
+    option_B: str                       # 管理路线
+    impact: str                         # "5-yr salary gap ~30%, technical depth divergence"
+
+
+@dataclass
 class Milestone:
     year: int
     title: str
     skills_needed: list[str] = field(default_factory=list)
+    decision_gate: Optional[DecisionGate] = None    # optional fork at this milestone
 
 
 @dataclass
 class CareerPrediction:
+    """Generic (job-agnostic) 5-year trajectory used by CareerPathPredictorAgent."""
     current_level: str
     target_role_in_5yr: str
     milestones: list[Milestone] = field(default_factory=list)
     skill_gaps_to_bridge: list[str] = field(default_factory=list)
     confidence_note: str = ""
+
+
+@dataclass
+class JobCareerPath:
+    """
+    Job-specific counterfactual career path produced by CounterfactualCareerAgent.
+    "If you accept THIS job, here is your 5-year trajectory."
+    针对某个具体岗位的反事实职业轨迹：「如果你接受这个 offer，5 年后你会在哪里」。
+    """
+    job_id: str
+    job_title: str
+    company: str
+    trajectory_summary: str             # e.g. "Y1: Tech Lead → Y3: EM → Y5: VP Eng"
+    milestones: list[Milestone] = field(default_factory=list)
+    key_risks: list[str] = field(default_factory=list)
+
+
+# ── Comparison Matrix ────────────────────────────────────────────────────────
+
+@dataclass
+class ComparisonRow:
+    """
+    One row in the job comparison matrix (e.g. "Career Ceiling").
+    Values maps job_id → cell text for that dimension.
+    岗位对比矩阵中的一行（如「晋升天花板」），values 是 job_id → 单元格文字。
+    """
+    dimension: str                      # e.g. "Career Ceiling"
+    values: dict[str, str]              # {job_id: "VP Eng", ...}
+
+
+@dataclass
+class JobComparisonMatrix:
+    """
+    Cross-job comparison table across key career dimensions.
+    Produced by InsightGeneratorAgent in Phase 3, after per-job insights.
+    """
+    rows: list[ComparisonRow]           # 6–8 dimension rows
+    recommendation: str                 # e.g. "Job B offers faster IC growth; Job A if targeting management"
 
 
 # ── Insight Report ────────────────────────────────────────────────────────────
@@ -98,6 +152,7 @@ class JobInsight:
     skill_gaps: list[str]
     career_fit_commentary: str = ""
     implicit_requirements: list[str] = field(default_factory=list)
+    counterfactual_path: Optional["JobCareerPath"] = None   # per-job counterfactual trajectory
 
 
 @dataclass
@@ -105,3 +160,4 @@ class InsightReport:
     overall_summary: str
     top_jobs: list[JobInsight]
     development_plan: str = ""
+    job_comparison_matrix: Optional[JobComparisonMatrix] = None

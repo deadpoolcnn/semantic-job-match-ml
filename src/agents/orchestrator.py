@@ -34,6 +34,7 @@ from src.agents.resume_parser_agent import ResumeParserAgent
 from src.agents.job_analyzer_agent import JobAnalyzerAgent
 from src.agents.match_scorer_agent import MatchScorerAgent
 from src.agents.career_path_predictor_agent import CareerPathPredictorAgent
+from src.agents.counterfactual_career_agent import CounterfactualCareerAgent
 from src.agents.insight_generator_agent import InsightGeneratorAgent
 from src.models.agent_schemas import AnalyzedJob
 from src.services.job_loader import load_jobs
@@ -46,11 +47,12 @@ class OrchestratorAgent:
     """Coordinates all specialist agents in a 3-phase DAG."""
 
     def __init__(self) -> None:
-        self.parser    = ResumeParserAgent() # 解析简历
-        self.analyzer  = JobAnalyzerAgent() # 分析JD
-        self.scorer    = MatchScorerAgent() # 对JD进行五维评分
-        self.predictor = CareerPathPredictorAgent() # 预测职业发展路径
-        self.insight   = InsightGeneratorAgent() # 生成 per-job insight + overall summary
+        self.parser          = ResumeParserAgent()          # 解析简历
+        self.analyzer        = JobAnalyzerAgent()           # 分析JD
+        self.scorer          = MatchScorerAgent()           # 对JD进行五维评分
+        self.predictor       = CareerPathPredictorAgent()   # 预测岇位无关全局职业轨迹
+        self.counterfactual  = CounterfactualCareerAgent()  # 针对每个岗位的反事实轨迹
+        self.insight         = InsightGeneratorAgent()      # 生成 per-job insight + overall summary
 
     async def run(self, ctx: AgentContext) -> AgentContext:
         # ── Phase 1: Resume parse + JD analysis (parallel) ───────────────────
@@ -83,11 +85,12 @@ class OrchestratorAgent:
                 for i, p in enumerate(postings)
             ]
 
-        # ── Phase 2: Scoring + Career prediction (parallel) ──────────────────
-        logger.info(f"[{ctx.request_id}] Orchestrator Phase 2 — score + predict (parallel)")
+        # ── Phase 2: Scoring + Career prediction + Counterfactual paths (parallel) ──
+        logger.info(f"[{ctx.request_id}] Orchestrator Phase 2 — score + predict + counterfactual (parallel)")
         await asyncio.gather(
             self.scorer(ctx),
             self.predictor(ctx),
+            self.counterfactual(ctx),
         )
 
         # Scoring is a hard dependency for Phase 3
@@ -102,7 +105,15 @@ class OrchestratorAgent:
         if "career_predictor" in ctx.errors:
             logger.warning(
                 f"[{ctx.request_id}] CareerPathPredictorAgent failed ({ctx.errors['career_predictor']}), "
-                "insight will proceed without career context"
+                "insight will proceed without generic career context"
+            )
+
+        # Counterfactual failure is non-fatal; per-job paths will be absent in the report.
+        # 反事实轨迹失败是非致命的；报告中不会包含每个岗位的专属轨迹。
+        if "counterfactual_career" in ctx.errors:
+            logger.warning(
+                f"[{ctx.request_id}] CounterfactualCareerAgent failed ({ctx.errors['counterfactual_career']}), "
+                "insight will proceed without per-job career paths"
             )
 
         # ── Phase 3: Insight synthesis (serial) ──────────────────────────────

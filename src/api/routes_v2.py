@@ -32,10 +32,26 @@ ALLOWED_TYPES = {
 
 # ── Response models ───────────────────────────────────────────────────────────
 
+class DecisionGateOut(BaseModel):
+    year: int
+    question: str
+    option_A: str
+    option_B: str
+    impact: str
+
 class MilestoneOut(BaseModel):
     year: int
     title: str
     skills_needed: list[str]
+    decision_gate: Optional[DecisionGateOut] = None
+
+class JobCareerPathOut(BaseModel):
+    job_id: str
+    job_title: str
+    company: str
+    trajectory_summary: str
+    milestones: list[MilestoneOut]
+    key_risks: list[str]
 
 class CareerPredictionOut(BaseModel):
     current_level: str
@@ -54,6 +70,15 @@ class JobInsightOut(BaseModel):
     skill_gaps: list[str]
     career_fit_commentary: str
     implicit_requirements: list[str]
+    counterfactual_path: Optional[JobCareerPathOut] = None
+
+class ComparisonRowOut(BaseModel):
+    dimension: str
+    values: dict[str, str]
+
+class JobComparisonMatrixOut(BaseModel):
+    rows: list[ComparisonRowOut]
+    recommendation: str
 
 class CandidateSummaryOut(BaseModel):
     name: str
@@ -70,6 +95,7 @@ class MatchV2Response(BaseModel):
     top_matches: list[JobInsightOut]
     overall_summary: str
     development_plan: str
+    job_comparison_matrix: Optional[JobComparisonMatrixOut] = None
     errors: dict
     timings: dict          # agent_name → elapsed seconds
 
@@ -131,11 +157,47 @@ async def match_resume_file_v2(
             current_level=pred.current_level,
             target_role_in_5yr=pred.target_role_in_5yr,
             milestones=[
-                MilestoneOut(year=m.year, title=m.title, skills_needed=m.skills_needed)
+                MilestoneOut(
+                    year=m.year,
+                    title=m.title,
+                    skills_needed=m.skills_needed,
+                    decision_gate=DecisionGateOut(
+                        year=m.decision_gate.year,
+                        question=m.decision_gate.question,
+                        option_A=m.decision_gate.option_A,
+                        option_B=m.decision_gate.option_B,
+                        impact=m.decision_gate.impact,
+                    ) if m.decision_gate else None,
+                )
                 for m in pred.milestones
             ],
             skill_gaps_to_bridge=pred.skill_gaps_to_bridge,
             confidence_note=pred.confidence_note,
+        )
+
+    def _milestone_out(m) -> MilestoneOut:
+        """Convert a Milestone dataclass (possibly with DecisionGate) to MilestoneOut."""
+        gate = None
+        if m.decision_gate:
+            gate = DecisionGateOut(
+                year=m.decision_gate.year,
+                question=m.decision_gate.question,
+                option_A=m.decision_gate.option_A,
+                option_B=m.decision_gate.option_B,
+                impact=m.decision_gate.impact,
+            )
+        return MilestoneOut(year=m.year, title=m.title, skills_needed=m.skills_needed, decision_gate=gate)
+
+    def _career_path_out(path) -> Optional[JobCareerPathOut]:
+        if path is None:
+            return None
+        return JobCareerPathOut(
+            job_id=path.job_id,
+            job_title=path.job_title,
+            company=path.company,
+            trajectory_summary=path.trajectory_summary,
+            milestones=[_milestone_out(m) for m in path.milestones],
+            key_risks=path.key_risks,
         )
 
     top_matches: list[JobInsightOut] = []
@@ -151,10 +213,19 @@ async def match_resume_file_v2(
                 skill_gaps=ji.skill_gaps,
                 career_fit_commentary=ji.career_fit_commentary,
                 implicit_requirements=ji.implicit_requirements,
+                counterfactual_path=_career_path_out(ji.counterfactual_path),
             ))
 
     overall_summary = ctx.insight_report.overall_summary if ctx.insight_report else ""
     development_plan = ctx.insight_report.development_plan if ctx.insight_report else ""
+
+    comparison_matrix_out: Optional[JobComparisonMatrixOut] = None
+    if ctx.insight_report and ctx.insight_report.job_comparison_matrix:
+        mx = ctx.insight_report.job_comparison_matrix
+        comparison_matrix_out = JobComparisonMatrixOut(
+            rows=[ComparisonRowOut(dimension=r.dimension, values=r.values) for r in mx.rows],
+            recommendation=mx.recommendation,
+        )
 
     logger.info(f"[{request_id}] V2 done | matches={len(top_matches)} | errors={ctx.errors or 'none'} | timings={ctx.timings}")
     return MatchV2Response(
@@ -164,6 +235,7 @@ async def match_resume_file_v2(
         top_matches=top_matches,
         overall_summary=overall_summary,
         development_plan=development_plan,
+        job_comparison_matrix=comparison_matrix_out,
         errors=ctx.errors,
         timings=ctx.timings,
     )

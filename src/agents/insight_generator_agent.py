@@ -18,7 +18,15 @@ from typing import Optional
 from openai import AsyncOpenAI
 
 from src.agents.base import AgentBase, AgentContext
-from src.models.agent_schemas import AnalyzedJob, CareerPrediction, InsightReport, JobInsight
+from src.models.agent_schemas import (
+    AnalyzedJob,
+    CareerPrediction,
+    ComparisonRow,
+    InsightReport,
+    JobCareerPath,
+    JobComparisonMatrix,
+    JobInsight,
+)
 from src.models.schemas import FiveDimScore
 from src.core.config import get_moonshot_api_key, get_moonshot_model
 
@@ -61,6 +69,7 @@ async def _generate_job_insight(
     resume_text: str,
     job: dict,
     career_summary: str,
+    path_map: dict[str, "JobCareerPath"],
 ) -> JobInsight:
     """Generate a single job's insight: why_match, skill_gaps, career_fit_commentary."""
     prompt = f"""You are a technical recruitment advisor. Analyze the match between this candidate and job.
@@ -105,10 +114,11 @@ async def _generate_job_insight(
             company=job["company"],
             score=job["score"],
             five_dim_score=job["five_dim_score"],
-            why_match=data.get("why_match", []), # why_match: 具体到点的“你为什么适合这个岗位”（技能、经历、文化等）。
-            skill_gaps=data.get("skill_gaps", []), # 明确写出差在哪、缺哪些技能。
-            career_fit_commentary=data.get("career_fit_commentary", ""), # 这份工作和你 5 年职业目标之间的关系（一句话）。
+            why_match=data.get("why_match", []),     # 具体到点的"你为什么适合这个岗位"
+            skill_gaps=data.get("skill_gaps", []),     # 明确写出差在哪、缺哪些技能
+            career_fit_commentary=data.get("career_fit_commentary", ""),  # 与 5 年职业目标的关系
             implicit_requirements=job["implicit_requirements"],
+            counterfactual_path=path_map.get(job["job_id"]),
         )
     except Exception as e:
         logger.warning(f"Insight generation failed for job_id={job['job_id']}: {e}")
@@ -120,9 +130,77 @@ async def _generate_job_insight(
             five_dim_score=job["five_dim_score"],
             why_match=[],
             skill_gaps=[],
+            counterfactual_path=path_map.get(job["job_id"]),
         )
 
-# 生成全局总结 + 发展计划
+# ── Comparison Matrix ─────────────────────────────────────────────────────────
+
+async def _generate_comparison_matrix(
+    top_jobs: list[JobInsight],
+    job_career_paths: list[JobCareerPath],
+) -> Optional[JobComparisonMatrix]:
+    """
+    Single Moonshot call: produce a cross-job comparison matrix across 6 career dimensions.
+    单次 Moonshot 调用：跨 6 个职业维度生成岗位对比矩阵。
+    """
+    if len(top_jobs) < 2:
+        return None
+
+    path_map = {p.job_id: p for p in job_career_paths}
+
+    job_summaries = []
+    for ji in top_jobs:
+        path = path_map.get(ji.job_id)
+        trajectory = path.trajectory_summary if path else "N/A"
+        risks = ", ".join(path.key_risks[:2]) if path else "N/A"
+        job_summaries.append(
+            f"Job ID {ji.job_id} | {ji.job_title} @ {ji.company} | "
+            f"score={ji.score:.2f} | trajectory={trajectory} | risks={risks}"
+        )
+
+    jobs_block = "\n".join(f"  - {s}" for s in job_summaries)
+    job_ids = [ji.job_id for ji in top_jobs]
+
+    prompt = (
+        "You are a career strategist. Compare the following job options for a single candidate\n"
+        "and fill in a comparison matrix across exactly these 6 dimensions:\n"
+        "1. Career Ceiling (5-yr highest title achievable)\n"
+        "2. Management vs IC Track (which path is more natural)\n"
+        "3. Technical Depth (how deep they can go technically)\n"
+        "4. Risk Level (job stability, startup risk, big-tech bureaucracy etc.)\n"
+        "5. Salary Trajectory (estimated 5-yr earning potential)\n"
+        "6. Culture & Pace (work culture, speed of iteration)\n\n"
+        f"Jobs:\n{jobs_block}\n\n"
+        f"Job IDs: {job_ids}\n\n"
+        "Respond ONLY with valid JSON:\n"
+        '{"rows": [{"dimension": "Career Ceiling", "values": {"<job_id_1>": "VP Eng", "<job_id_2>": "Principal Engineer"}}, ...],'
+        ' "recommendation": "One sentence: which job to choose and why, with a trade-off callout."}'
+    )
+
+    try:
+        response = await _client.chat.completions.create(
+            model=MOONSHOT_MODEL,
+            messages=[
+                {"role": "system", "content": "You are a career strategist. Output only valid JSON."},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.3,
+            response_format={"type": "json_object"},
+        )
+        content = response.choices[0].message.content or "{}"
+        data = json.loads(content)
+
+        rows = [
+            ComparisonRow(dimension=r.get("dimension", ""), values=r.get("values", {}))
+            for r in data.get("rows", [])
+        ]
+        return JobComparisonMatrix(
+            rows=rows,
+            recommendation=data.get("recommendation", ""),
+        )
+    except Exception as e:
+        logger.warning(f"Comparison matrix generation failed: {e}")
+        return None
 async def _generate_overall_summary(
     candidate_name: str,
     top_jobs: list[JobInsight],
@@ -233,9 +311,13 @@ class InsightGeneratorAgent(AgentBase):
 
         # Phase A: per-job insights in parallel
         # 阶段 A：并行生成每个职位的洞察
+        path_map: dict[str, JobCareerPath] = {
+            p.job_id: p for p in ctx.job_career_paths
+        }
+
         job_insights: list[JobInsight] = list(
             await asyncio.gather(
-                *[_generate_job_insight(resume_text, jd, career_summary) for jd in job_dicts]
+                *[_generate_job_insight(resume_text, jd, career_summary, path_map) for jd in job_dicts]
             )
         )
 
@@ -245,10 +327,15 @@ class InsightGeneratorAgent(AgentBase):
             candidate_name, job_insights, career
         )
 
+        # Phase C: job comparison matrix — single LLM call comparing all top-k jobs
+        # 第三阶段：岗位对比矩阵（对 top-k 结果跨岗位对比，单次 LLM 调用）
+        comparison_matrix = await _generate_comparison_matrix(job_insights, ctx.job_career_paths)
+
         ctx.insight_report = InsightReport(
             overall_summary=overall_summary,
             top_jobs=job_insights,
             development_plan=dev_plan,
+            job_comparison_matrix=comparison_matrix,
         )
 
         logger.info(f"[{ctx.request_id}] InsightGeneratorAgent done")

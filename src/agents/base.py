@@ -14,6 +14,7 @@ from src.models.agent_schemas import (
     ResumeProfile,
     AnalyzedJob,
     CareerPrediction,
+    JobCareerPath,
     InsightReport,
 )
 from src.models.schemas import FiveDimScore
@@ -37,11 +38,12 @@ class AgentContext:
     top_k: int = 3
 
     # ── Agent outputs (written in DAG order) / Agent 输出（按 DAG 顺序写入）──
-    candidate_profile: Optional[ResumeProfile] = None           # ResumeParserAgent        → 候选人画像
-    analyzed_jobs: list[AnalyzedJob] = field(default_factory=list)   # JobAnalyzerAgent    → JD 深度分析结果
-    scored_results: list[FiveDimScore] = field(default_factory=list) # MatchScorerAgent    → 五维评分结果
-    career_prediction: Optional[CareerPrediction] = None        # CareerPathPredictorAgent → 职业轨迹预测
-    insight_report: Optional[InsightReport] = None              # InsightGeneratorAgent    → 最终洞察报告
+    candidate_profile: Optional[ResumeProfile] = None               # ResumeParserAgent            → 候选人画像
+    analyzed_jobs: list[AnalyzedJob] = field(default_factory=list)       # JobAnalyzerAgent        → JD 深度分析结果
+    scored_results: list[FiveDimScore] = field(default_factory=list)     # MatchScorerAgent        → 五维评分结果
+    career_prediction: Optional[CareerPrediction] = None               # CareerPathPredictorAgent  → 岂位无关全局轨迹
+    job_career_paths: list[JobCareerPath] = field(default_factory=list)  # CounterfactualCareerAgent → 每个岗位的反事实轨迹
+    insight_report: Optional[InsightReport] = None                     # InsightGeneratorAgent     → 最终洞察报告
 
     # ── Observability / 可观测性 ──────────────────────────────────────────────
     errors: dict[str, str] = field(default_factory=dict)        # agent_name → error message / Agent 名 → 错误信息
