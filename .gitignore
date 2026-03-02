@@ -18,7 +18,10 @@ env/
 *.swo
 *~
 .DS_Store
-.github
+.github/*
+# 但保留 workflows 目录
+!.github/workflows/
+!.github/workflows/*.yml
 
 # Jupyter Notebook
 .ipynb_checkpoints
