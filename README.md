@@ -453,6 +453,86 @@ Only needed for the `/org` legacy endpoints:
 PYTHONPATH=. python -m scripts.build_faiss_index
 ```
 
+## Deployment
+
+### Docker (Local)
+
+```bash
+# Build the image
+docker build -t semantic-job-match .
+
+# Run the container
+docker run -d \
+  --name semantic-job-match \
+  --restart unless-stopped \
+  -p 8000:8000 \
+  -e MOONSHOT_API_KEY=your_key \
+  -e MOONSHOT_MODEL=kimi-k2-turbo-preview \
+  semantic-job-match
+
+# Verify
+curl http://localhost:8000/health
+```
+
+> **Note**: The first build downloads PyTorch (CPU-only), sentence-transformers models, and NLTK data — expect 10–20 minutes. Subsequent builds complete in 1–2 minutes thanks to Docker layer caching.
+
+### CI/CD with GitHub Actions
+
+Pushing to `main` or `master` automatically runs the following pipeline:
+
+```
+push to main/master
+        │
+        ▼  (only when these paths change)
+        │  src/**  scripts/**  data/**
+        │  requirements.txt  Dockerfile  .github/workflows/deploy.yml
+        │
+  ┌─────┴──────────────────────────────────────────────┐
+  │ Job 1: Build & Push                                │
+  │  ├─ Log in to GitHub Container Registry (ghcr.io) │
+  │  ├─ Build Docker image (two-layer cache strategy)  │
+  │  │    layer 1: GHA cache (7-day TTL)               │
+  │  │    layer 2: registry cache (permanent fallback) │
+  │  └─ Push → ghcr.io/<owner>/<repo>:latest          │
+  └─────────────────────────────────────────────────────┘
+        │
+        ▼
+  ┌─────┴──────────────────────────────────────────────┐
+  │ Job 2: Deploy                                      │
+  │  ├─ SSH into server                                │
+  │  ├─ docker pull ghcr.io/...latest                  │
+  │  ├─ Stop and remove old container                  │
+  │  ├─ docker run (inject MOONSHOT_API_KEY)           │
+  │  ├─ Prune dangling images                          │
+  │  └─ curl /health to verify deployment              │
+  └─────────────────────────────────────────────────────┘
+```
+
+#### GitHub Secrets
+
+Add the following 4 secrets in **Settings → Secrets and variables → Actions**:
+
+| Secret | Description |
+|--------|-------------|
+| `MOONSHOT_API_KEY` | Moonshot Kimi API key |
+| `SERVER_HOST` | Server IP address or domain |
+| `SERVER_USER` | SSH login username |
+| `SSH_PRIVATE_KEY` | SSH private key (public key must be in server's `~/.ssh/authorized_keys`) |
+
+> `GITHUB_TOKEN` is automatically provided by GitHub Actions — no manual setup needed.
+
+#### Manual Trigger
+
+Go to **Actions → Build and Deploy to Server → Run workflow** in your GitHub repository to trigger a deployment without pushing code.
+
+#### Changes That Do NOT Trigger Deployment
+
+The following file changes are ignored to avoid unnecessary rebuilds:
+
+- `README.md` and other `*.md` docs
+- `.env`, `.dockerignore`
+- `tests/` directory
+
 ## Troubleshooting
 
 ### Server hangs after "FiveDimScorer ready."
