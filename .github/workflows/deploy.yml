@@ -3,6 +3,13 @@ name: Build and Deploy to Server
 on:
   push:
     branches: [main, master]
+    paths:
+      - "src/**"
+      - "scripts/**"
+      - "data/**"
+      - "requirements.txt"
+      - "Dockerfile"
+      - ".github/workflows/deploy.yml"
   workflow_dispatch:
 
 env:
@@ -50,7 +57,12 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
+          # 双层缓存策略：
+          # 1. GHA cache：同一 runner 上的快速 layer 缓存（7天有效期）
+          # 2. registry cache：GHA cache 过期后从上一次推送的镜像中恢复 layer 缓存
+          cache-from: |
+            type=gha
+            type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
           cache-to: type=gha,mode=max
 
   deploy:

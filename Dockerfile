@@ -4,20 +4,23 @@
 FROM python:3.11-slim AS builder
 
 # System dependencies required at install time
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# --mount=type=cache 让 apt 缓存跨构建复用，避免重复下载
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libgomp1 \
     curl \
-    git \
-    && rm -rf /var/lib/apt/lists/*
+    git
 
 WORKDIR /app
 
 # Install Python dependencies
-# Use PyTorch CPU-only wheel index to keep the image small (~1 GB vs ~3 GB with CUDA)
+# --mount=type=cache 让 pip 缓存跨构建复用：requirements.txt 局部变更时只下载新增包
 COPY requirements.txt .
-RUN pip install --upgrade pip && \
-    pip install --no-cache-dir \
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --upgrade pip && \
+    pip install \
         --extra-index-url https://download.pytorch.org/whl/cpu \
         -r requirements.txt
 
@@ -36,10 +39,11 @@ SentenceTransformer('all-MiniLM-L6-v2')"
 FROM python:3.11-slim AS runtime
 
 # Minimal runtime system libraries（保留 curl 供健康检查使用）
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
     libgomp1 \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+    curl
 
 WORKDIR /app
 
