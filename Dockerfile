@@ -61,7 +61,7 @@ ENV PYTHONUNBUFFERED=1 \
     GEMINI_API_KEY="" \
     GEMINI_MODEL="gemini-2.0-flash" \
     MOONSHOT_API_KEY="" \
-    MOONSHOT_MODEL="kimi-k2.5"
+    MOONSHOT_MODEL="kimi-k2-turbo-preview"
 
 EXPOSE 8000
 
