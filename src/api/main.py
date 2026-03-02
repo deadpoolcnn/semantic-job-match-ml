@@ -23,11 +23,14 @@ app = FastAPI(
     version="0.1.0"
 )
 
-# CORS：如果你未来前端是 React，先放开个宽松配置
+# CORS：只允许前端域名访问
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
+    allow_origins=[
+        "https://analysis.fuppuccino.vip",
+        "http://localhost:5173",             # 本地开发环境
+    ],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
