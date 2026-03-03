@@ -9,6 +9,7 @@ on:
       - "data/**"
       - "requirements.txt"
       - "Dockerfile"
+      - "docker-compose.yml"
       - ".github/workflows/deploy.yml"
   workflow_dispatch:
 
@@ -71,6 +72,19 @@ jobs:
     needs: build-and-push
 
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Copy docker-compose.yml to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "docker-compose.yml"
+          target: "/www/wwwroot/semantic-job-match-ml"
+          overwrite: true
+
       - name: SSH & deploy
         uses: appleboy/ssh-action@v1.2.0
         env:
@@ -84,29 +98,28 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           envs: GH_TOKEN,GH_ACTOR,GH_REPO,MOONSHOT_API_KEY
           script: |
-            # 登录 GHCR（token 在 workflow 运行期间有效）
+            # Login to GHCR
             echo "$GH_TOKEN" | docker login ghcr.io -u "$GH_ACTOR" --password-stdin
 
-            # 拉取最新镜像
-            docker pull ghcr.io/$GH_REPO:latest
+            cd /www/wwwroot/semantic-job-match-ml
 
-            # 停止并删除旧容器（如果存在）
-            docker stop semantic-job-match || true
-            docker rm   semantic-job-match || true
+            # Override the image tag in compose to use the GHCR image
+            export IMAGE_NAME="ghcr.io/$GH_REPO:latest"
+            export MOONSHOT_API_KEY="$MOONSHOT_API_KEY"
 
-            # 启动新容器
-            docker run -d \
-              --name semantic-job-match \
-              --restart unless-stopped \
-              -p 8000:8000 \
-              -e MOONSHOT_API_KEY="$MOONSHOT_API_KEY" \
-              -e MOONSHOT_MODEL=kimi-k2-turbo-preview \
-              ghcr.io/$GH_REPO:latest
+            # Pull latest image
+            docker pull "$IMAGE_NAME"
 
-            # 清理悬空镜像
+            # Tag as local name so docker-compose can find it
+            docker tag "$IMAGE_NAME" semantic-job-match:latest
+
+            # Bring up all services (api + worker + redis) with zero downtime
+            MOONSHOT_API_KEY="$MOONSHOT_API_KEY" docker compose up -d --remove-orphans
+
+            # Prune dangling images
             docker image prune -f
 
-            # 验证部署结果
-            sleep 10
-            docker ps | grep job-match-api
-            curl -f http://localhost:8000/health && echo "✅ 部署成功!"
+            # Verify API is healthy
+            sleep 15
+            docker compose ps
+            curl -f http://localhost:8000/health && echo "✅ Deployment successful!"

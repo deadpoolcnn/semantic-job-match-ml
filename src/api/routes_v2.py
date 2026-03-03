@@ -1,14 +1,17 @@
 """
 V2 API routes — multi-agent pipeline.
 
-POST /api/v2/match_resume_file   Upload PDF/DOCX, run full agent DAG
-GET  /api/v2/jd_cache/status     Inspect JD cache state
-DELETE /api/v2/jd_cache          Manually invalidate JD cache
+POST /api/v2/match_resume_file        Sync endpoint (blocks until done, ~15-25s)
+POST /api/v2/match_resume_async       Async endpoint — returns task_id immediately (<100ms)
+GET  /api/v2/result/{task_id}         Poll for async task result
+GET  /api/v2/jd_cache/status          Inspect JD cache state
+DELETE /api/v2/jd_cache               Manually invalidate JD cache
 """
 
+import asyncio
 import logging
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, UploadFile, File
 from pydantic import BaseModel
@@ -16,10 +19,16 @@ from pydantic import BaseModel
 from src.agents.base import AgentContext
 from src.agents.orchestrator import OrchestratorAgent
 from src.agents.job_analyzer_agent import _cache as _jd_cache
+from src.core.app_config import get_app_config
 
 logger = logging.getLogger(__name__)
 
+_cfg = get_app_config()
+
 router_v2 = APIRouter(prefix="/api/v2", tags=["match-v2"])
+
+# Semaphore limits concurrent requests on the sync endpoint
+_sync_semaphore = asyncio.Semaphore(_cfg.MAX_CONCURRENT_REQUESTS)
 
 # Process-level orchestrator singleton (agents hold no mutable state between requests)
 _orchestrator = OrchestratorAgent()
@@ -108,7 +117,9 @@ async def match_resume_file_v2(
     top_k: int = 3,
 ):
     """
-    Multi-agent resume matching pipeline.
+    Synchronous multi-agent pipeline (blocks until done, ~15-25s).
+    Limited to MAX_CONCURRENT_REQUESTS simultaneous calls; excess requests queue on
+    the semaphore. For high-concurrency use POST /match_resume_async instead.
 
     Phase 1 (parallel): ResumeParserAgent + JobAnalyzerAgent
     Phase 2 (parallel): MatchScorerAgent + CareerPathPredictorAgent
@@ -130,9 +141,8 @@ async def match_resume_file_v2(
         top_k=top_k,
     )
 
-    # Run the full agent DAG with the uploaded file and parameters.
-    # return andidate_profile, career_prediction, scored_results, analyzed_jobs, insight_report
-    ctx = await _orchestrator.run(ctx)
+    async with _sync_semaphore:
+        ctx = await _orchestrator.run(ctx)
 
     # Hard abort: resume parsing must succeed
     if ctx.candidate_profile is None:
@@ -258,3 +268,132 @@ def jd_cache_clear():
     _jd_cache["results"] = {}
     logger.info("JD cache manually cleared")
     return {"status": "cleared"}
+
+
+# ── Async task endpoints ───────────────────────────────────────────────────────
+
+class TaskEnqueuedResponse(BaseModel):
+    task_id: str
+    status: str   # "queued"
+    poll_url: str
+
+
+class TaskResultResponse(BaseModel):
+    task_id: str
+    status: str   # "queued" | "started" | "completed" | "failed"
+    result: Optional[dict[str, Any]] = None
+    error: Optional[str] = None
+
+
+@router_v2.post(
+    "/match_resume_async",
+    response_model=TaskEnqueuedResponse,
+    status_code=202,
+    summary="Enqueue resume matching (async)",
+)
+async def match_resume_async(
+    file: UploadFile = File(..., description="PDF or DOCX resume"),
+    top_k: int = 3,
+):
+    """
+    Enqueue a resume matching job and return immediately (<100ms).
+
+    The client should poll **GET /api/v2/result/{task_id}** until
+    `status` is `"completed"` or `"failed"`.
+    """
+    if file.content_type not in ALLOWED_TYPES:
+        raise HTTPException(status_code=400, detail="Only PDF/DOCX supported.")
+
+    file_bytes = await file.read()
+    request_id = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+
+    # Celery requires JSON-serialisable args — send bytes as list[int]
+    _bytes_list = list(file_bytes)
+    _filename = file.filename or ""
+
+    def _enqueue():
+        from src.workers.tasks import run_match_pipeline
+        return run_match_pipeline.delay(
+            file_bytes=_bytes_list,
+            filename=_filename,
+            top_k=top_k,
+            request_id=request_id,
+        )
+
+    try:
+        loop = asyncio.get_event_loop()
+        task = await asyncio.wait_for(
+            loop.run_in_executor(None, _enqueue),
+            timeout=6.0,  # Fail fast if Redis is unreachable
+        )
+    except (asyncio.TimeoutError, Exception) as exc:
+        logger.error(f"[{request_id}] Broker unavailable: {exc}")
+        raise HTTPException(
+            status_code=503,
+            detail="Task queue unavailable — Redis broker is not reachable.",
+        ) from exc
+
+    logger.info(f"[{request_id}] Task enqueued | task_id={task.id} | {file.filename} | top_k={top_k}")
+    return TaskEnqueuedResponse(
+        task_id=task.id,
+        status="queued",
+        poll_url=f"/api/v2/result/{task.id}",
+    )
+
+
+@router_v2.get(
+    "/result/{task_id}",
+    response_model=TaskResultResponse,
+    summary="Poll async task result",
+)
+def get_task_result(task_id: str):
+    """
+    Poll the status and result of an async matching task.
+
+    | `status`    | Meaning                                  |
+    |-------------|------------------------------------------|
+    | `queued`    | Waiting in Redis queue                   |
+    | `started`   | Worker has picked it up                  |
+    | `completed` | Done — `result` field contains the data  |
+    | `failed`    | Pipeline error — check `error` field     |
+    """
+    from celery.result import AsyncResult
+    from src.workers.celery_app import celery_app
+
+    try:
+        res = AsyncResult(task_id, app=celery_app)
+        # Force a backend connection to detect broker unavailability early
+        state = res.state
+    except Exception as exc:
+        logger.error(f"Broker unavailable when polling {task_id}: {exc}")
+        raise HTTPException(
+            status_code=503,
+            detail="Task queue unavailable — Redis broker is not reachable.",
+        ) from exc
+
+    if state in ("PENDING", "RECEIVED"):
+        return TaskResultResponse(task_id=task_id, status="queued")
+
+    if state == "STARTED":
+        return TaskResultResponse(task_id=task_id, status="started")
+
+    if state == "SUCCESS":
+        payload: dict = res.result or {}
+        # Worker may have returned a failed-pipeline result (not a Celery failure)
+        if payload.get("status") == "failed":
+            return TaskResultResponse(
+                task_id=task_id,
+                status="failed",
+                error=payload.get("error", "Unknown error"),
+            )
+        return TaskResultResponse(task_id=task_id, status="completed", result=payload)
+
+    if state == "FAILURE":
+        return TaskResultResponse(
+            task_id=task_id,
+            status="failed",
+            error=str(res.result),
+        )
+
+    # REVOKED / other
+    return TaskResultResponse(task_id=task_id, status=state.lower())

@@ -73,5 +73,6 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-# 生产启动：host 0.0.0.0 才能被容器外访问，不开 --reload
+# Default command: API server.
+# The Celery worker overrides this in docker-compose.yml.
 CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000"]

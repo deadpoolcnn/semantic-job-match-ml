@@ -1,0 +1,96 @@
+# syntax=docker/dockerfile:1
+# Full stack: Redis + API server + Celery worker(s)
+#
+# Usage:
+#   docker compose up --build                # start all services
+#   docker compose up --scale worker=3       # scale to 3 workers
+#   docker compose down -v                   # tear down + remove volumes
+
+services:
+
+  # ── Redis ──────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── API server (FastAPI + uvicorn) ─────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: semantic-job-match:latest
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      MOONSHOT_API_KEY: ${MOONSHOT_API_KEY}
+      MOONSHOT_MODEL: ${MOONSHOT_MODEL:-kimi-k2-turbo-preview}
+      MAX_CONCURRENT_REQUESTS: ${MAX_CONCURRENT_REQUESTS:-2}
+      REQUEST_TIMEOUT_SECONDS: ${REQUEST_TIMEOUT_SECONDS:-120}
+      MOONSHOT_RPM_LIMIT: ${MOONSHOT_RPM_LIMIT:-30}
+      MOONSHOT_MAX_RETRIES: ${MOONSHOT_MAX_RETRIES:-3}
+      TASK_RESULT_TTL: ${TASK_RESULT_TTL:-3600}
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+    command: >
+      uvicorn src.api.main:app
+      --host 0.0.0.0
+      --port 8000
+      --workers 1
+
+  # ── Celery worker ──────────────────────────────────────────────────────────
+  # Reuses the same image as the API — different entrypoint only.
+  # Scale with: docker compose up --scale worker=N
+  worker:
+    image: semantic-job-match:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      MOONSHOT_API_KEY: ${MOONSHOT_API_KEY}
+      MOONSHOT_MODEL: ${MOONSHOT_MODEL:-kimi-k2-turbo-preview}
+      MOONSHOT_RPM_LIMIT: ${MOONSHOT_RPM_LIMIT:-30}
+      MOONSHOT_MAX_RETRIES: ${MOONSHOT_MAX_RETRIES:-3}
+      REQUEST_TIMEOUT_SECONDS: ${REQUEST_TIMEOUT_SECONDS:-120}
+      CELERY_WORKER_CONCURRENCY: ${CELERY_WORKER_CONCURRENCY:-1}
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: >
+      celery -A src.workers.celery_app.celery_app worker
+      --loglevel=info
+      --concurrency=${CELERY_WORKER_CONCURRENCY:-1}
+      --queues=match_queue
+      --hostname=worker@%h
+    # Celery workers hold PyTorch models in memory — give them enough RAM
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+volumes:
+  redis_data:
+    driver: local

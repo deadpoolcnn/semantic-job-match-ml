@@ -30,6 +30,7 @@ from src.models.schemas import JobPosting
 from src.services.job_loader import load_jobs
 from src.services.job_adapter import jobs_to_postings
 from src.core.config import get_moonshot_api_key, get_moonshot_model
+from src.services.rate_limiter import moonshot_acquire, moonshot_retry, RetryError
 
 logger = logging.getLogger(__name__)
 
@@ -42,9 +43,13 @@ _client = AsyncOpenAI(
 )
 MOONSHOT_MODEL = get_moonshot_model()
 
-# ── Process-level JD cache ────────────────────────────────────────────────────
+# ── Process-level JD cache (concurrency-safe) ────────────────────────────────
 # Structure: {"mtime": float | None, "results": dict[job_id, AnalyzedJob]}
 _cache: dict = {"mtime": None, "results": {}}
+
+# Lock ensures only ONE coroutine rebuilds the cache at a time.
+# All other concurrent requests wait and then get the freshly built result.
+_cache_lock = asyncio.Lock()
 
 
 def _get_mtime() -> Optional[float]:
@@ -54,8 +59,12 @@ def _get_mtime() -> Optional[float]:
         return None
 
 
+@moonshot_retry
 async def _analyze_single_job(posting: JobPosting, company: str = "") -> AnalyzedJob:
-    """Async Moonshot call to extract implicit requirements and culture signals for one JD."""
+    """
+    Async Moonshot call to extract implicit requirements and culture signals for one JD.
+    Rate-limited (token bucket) and retried with exponential back-off.
+    """
     prompt = f"""Analyze the following job description and extract two things:
 
         1. Implicit requirements — unstated but implied expectations not listed in the official requirements
@@ -75,53 +84,69 @@ async def _analyze_single_job(posting: JobPosting, company: str = "") -> Analyze
         }}
     """
 
+    # Acquire rate-limit token before every LLM call
+    await moonshot_acquire()
+
+    response = await _client.chat.completions.create(
+        model=MOONSHOT_MODEL,
+        messages=[
+            {"role": "system", "content": "You are a job analysis expert. Output only valid JSON."},
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.1,
+        response_format={"type": "json_object"},
+    )
+    content = response.choices[0].message.content or "{}"
+    data = json.loads(content)
+    return AnalyzedJob(
+        posting=posting,
+        company=company,
+        implicit_requirements=data.get("implicit_requirements", []),
+        culture_fit_signals=data.get("culture_fit_signals", []),
+    )
+
+
+async def _safe_analyze_single_job(posting: JobPosting, company: str = "") -> AnalyzedJob:
+    """Wrapper that catches RetryError / any exception and returns a fallback AnalyzedJob."""
     try:
-        response = await _client.chat.completions.create(
-            model=MOONSHOT_MODEL,
-            messages=[
-                {"role": "system", "content": "You are a job analysis expert. Output only valid JSON."},
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.1,
-            response_format={"type": "json_object"},
-        )
-        content = response.choices[0].message.content or "{}"
-        data = json.loads(content)
-        return AnalyzedJob(
-            posting=posting,
-            company=company,
-            implicit_requirements=data.get("implicit_requirements", []),
-            culture_fit_signals=data.get("culture_fit_signals", []),
-        )
-    except Exception as e:
-        logger.warning(f"JD analysis failed for job_id={posting.job_id}: {e}")
+        return await _analyze_single_job(posting, company)
+    except (RetryError, Exception) as e:
+        logger.warning(f"JD analysis failed for job_id={posting.job_id} after retries: {e}")
         return AnalyzedJob(posting=posting, company=company)
+
+
+async def _rebuild_cache(current_mtime: Optional[float]) -> None:
+    """
+    Internal: rebuild the JD cache under _cache_lock.
+    Must only be called while holding the lock (or at startup before serving).
+    """
+    raw_jobs = load_jobs()
+    postings = jobs_to_postings(raw_jobs)
+    companies = [j.get("company", "") for j in raw_jobs]
+
+    analyzed = await asyncio.gather(
+        *[_safe_analyze_single_job(p, c) for p, c in zip(postings, companies)]
+    )
+    _cache["mtime"] = current_mtime
+    _cache["results"] = {a.posting.job_id: a for a in analyzed}
+    logger.info(f"[JobAnalyzerAgent] Cache rebuilt: {len(_cache['results'])} jobs")
 
 
 async def prewarm() -> None:
     """
     Pre-warm the JD cache at server startup.
     Called from main.py startup event so the first real request hits the cache.
-    在服务启动时就把所有 JD 跑一遍 _analyze_single_job，把结果放进 _cache["results"]。
     """
     logger.info("[JobAnalyzerAgent] Pre-warming JD cache...")
     current_mtime = _get_mtime()
     if current_mtime is None:
         logger.warning("[JobAnalyzerAgent] Job file not found, skipping pre-warm")
         return
-    if _cache["mtime"] == current_mtime:
-        logger.info("[JobAnalyzerAgent] JD cache already warm")
-        return
-
-    raw_jobs = load_jobs()
-    postings = jobs_to_postings(raw_jobs)
-    companies = [j.get("company", "") for j in raw_jobs]
-
-    analyzed = await asyncio.gather(
-        *[_analyze_single_job(p, c) for p, c in zip(postings, companies)]
-    )
-    _cache["mtime"] = current_mtime
-    _cache["results"] = {a.posting.job_id: a for a in analyzed}
+    async with _cache_lock:
+        if _cache["mtime"] == current_mtime and _cache["results"]:
+            logger.info("[JobAnalyzerAgent] JD cache already warm")
+            return
+        await _rebuild_cache(current_mtime)
     logger.info(f"[JobAnalyzerAgent] JD cache warmed: {len(_cache['results'])} jobs analyzed")
 
 
@@ -137,6 +162,7 @@ class JobAnalyzerAgent(AgentBase):
     async def run(self, ctx: AgentContext) -> AgentContext:
         current_mtime = _get_mtime()
 
+        # Fast path: cache is valid — no lock needed for reads
         if _cache["mtime"] is not None and _cache["mtime"] == current_mtime and _cache["results"]:
             logger.info(
                 f"[{ctx.request_id}] JD cache hit — {len(_cache['results'])} jobs, skipping LLM analysis"
@@ -144,19 +170,18 @@ class JobAnalyzerAgent(AgentBase):
             ctx.analyzed_jobs = list(_cache["results"].values())
             return ctx
 
-        logger.info(f"[{ctx.request_id}] JD cache miss/invalidated — re-analyzing all JDs...")
-        raw_jobs = load_jobs()
-        postings = jobs_to_postings(raw_jobs)
-        companies = [j.get("company", "") for j in raw_jobs]
+        # Slow path: cache miss — acquire lock so only ONE coroutine rebuilds
+        logger.info(f"[{ctx.request_id}] JD cache miss/invalidated — acquiring lock...")
+        async with _cache_lock:
+            # Double-check inside lock: another coroutine may have rebuilt while we waited
+            if _cache["mtime"] == current_mtime and _cache["results"]:
+                logger.info(f"[{ctx.request_id}] JD cache populated by another coroutine, reusing")
+                ctx.analyzed_jobs = list(_cache["results"].values())
+                return ctx
 
-        analyzed = await asyncio.gather(
-            *[_analyze_single_job(p, c) for p, c in zip(postings, companies)]
-        )
-        analyzed_list = list(analyzed)
+            logger.info(f"[{ctx.request_id}] Rebuilding JD cache...")
+            await _rebuild_cache(current_mtime)
 
-        _cache["mtime"] = current_mtime
-        _cache["results"] = {a.posting.job_id: a for a in analyzed_list}
-
-        ctx.analyzed_jobs = analyzed_list
-        logger.info(f"[{ctx.request_id}] JD analysis complete: {len(analyzed_list)} jobs cached")
+        ctx.analyzed_jobs = list(_cache["results"].values())
+        logger.info(f"[{ctx.request_id}] JD analysis complete: {len(ctx.analyzed_jobs)} jobs cached")
         return ctx
