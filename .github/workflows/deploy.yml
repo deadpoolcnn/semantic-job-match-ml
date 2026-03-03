@@ -92,19 +92,23 @@ jobs:
           GH_ACTOR: ${{ github.actor }}
           GH_REPO: ${{ github.repository }}
           MOONSHOT_API_KEY: ${{ secrets.MOONSHOT_API_KEY }}
+          MOONSHOT_MODEL: ${{ secrets.MOONSHOT_MODEL }}
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          envs: GH_TOKEN,GH_ACTOR,GH_REPO,MOONSHOT_API_KEY
+          envs: GH_TOKEN,GH_ACTOR,GH_REPO,MOONSHOT_API_KEY,MOONSHOT_MODEL
           script: |
             # Login to GHCR
             echo "$GH_TOKEN" | docker login ghcr.io -u "$GH_ACTOR" --password-stdin
 
             cd /www/wwwroot/semantic-job-match-ml
 
+            # Write secrets to .env so docker compose always finds them
+            printf 'MOONSHOT_API_KEY=%s\nMOONSHOT_MODEL=%s\n' "$MOONSHOT_API_KEY" "$MOONSHOT_MODEL" > .env
+            chmod 600 .env
+
             export IMAGE_NAME="ghcr.io/$GH_REPO:latest"
-            export MOONSHOT_API_KEY="$MOONSHOT_API_KEY"
 
             # Pull latest image
             docker pull "$IMAGE_NAME"
