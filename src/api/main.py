@@ -6,11 +6,26 @@ import src.core.nltk_init  # noqa: F401
 import asyncio
 import logging
 import torch
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from src.api.routes import router, get_five_dim_scorer
 from src.api.routes_v2 import router_v2
+from src.api.routes_logs import router as logs_router
+
+# Configure logging to file + console
+LOG_FILE = Path("/var/log/semantic-job-match/app.log")
+LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s - %(message)s",
+    handlers=[
+        logging.FileHandler(LOG_FILE, encoding="utf-8"),
+        logging.StreamHandler(),  # Also print to console
+    ],
+)
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +53,7 @@ app.add_middleware(
 # 挂载路由
 app.include_router(router)
 app.include_router(router_v2)
+app.include_router(logs_router)
 
 
 @app.on_event("startup")

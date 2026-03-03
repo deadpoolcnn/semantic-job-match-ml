@@ -41,6 +41,8 @@ services:
       MOONSHOT_RPM_LIMIT: ${MOONSHOT_RPM_LIMIT:-30}
       MOONSHOT_MAX_RETRIES: ${MOONSHOT_MAX_RETRIES:-3}
       TASK_RESULT_TTL: ${TASK_RESULT_TTL:-3600}
+    volumes:
+      - logs_data:/var/log/semantic-job-match
     depends_on:
       redis:
         condition: service_healthy
@@ -70,6 +72,8 @@ services:
       MOONSHOT_MAX_RETRIES: ${MOONSHOT_MAX_RETRIES:-3}
       REQUEST_TIMEOUT_SECONDS: ${REQUEST_TIMEOUT_SECONDS:-120}
       CELERY_WORKER_CONCURRENCY: ${CELERY_WORKER_CONCURRENCY:-1}
+    volumes:
+      - logs_data:/var/log/semantic-job-match
     depends_on:
       redis:
         condition: service_healthy
@@ -87,4 +91,6 @@ services:
 
 volumes:
   redis_data:
+    driver: local
+  logs_data:
     driver: local

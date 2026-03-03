@@ -5,8 +5,23 @@ Import this module to get the configured Celery app:
 
     from src.workers.celery_app import celery_app
 """
+import logging
+from pathlib import Path
 from celery import Celery
 from src.core.app_config import get_app_config
+
+# Configure logging for Celery workers
+LOG_FILE = Path("/var/log/semantic-job-match/app.log")
+LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s - %(message)s",
+    handlers=[
+        logging.FileHandler(LOG_FILE, encoding="utf-8"),
+        logging.StreamHandler(),
+    ],
+)
 
 _cfg = get_app_config()
 
