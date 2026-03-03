@@ -103,7 +103,6 @@ jobs:
 
             cd /www/wwwroot/semantic-job-match-ml
 
-            # Override the image tag in compose to use the GHCR image
             export IMAGE_NAME="ghcr.io/$GH_REPO:latest"
             export MOONSHOT_API_KEY="$MOONSHOT_API_KEY"
 
@@ -113,13 +112,21 @@ jobs:
             # Tag as local name so docker-compose can find it
             docker tag "$IMAGE_NAME" semantic-job-match:latest
 
-            # Bring up all services (api + worker + redis) with zero downtime
-            MOONSHOT_API_KEY="$MOONSHOT_API_KEY" docker compose up -d --remove-orphans
+            # Stop any legacy containers started with plain `docker run`
+            # (docker compose --remove-orphans only manages compose-created containers)
+            for name in semantic-job-match semantic-job-match-ml api worker; do
+              docker stop "$name" 2>/dev/null && docker rm "$name" 2>/dev/null || true
+            done
+
+            # Bring up all services (redis + api + worker)
+            # --no-build: use the pulled image, never rebuild from source on the server
+            # --remove-orphans: remove old compose containers no longer in compose file
+            MOONSHOT_API_KEY="$MOONSHOT_API_KEY" docker compose up -d --no-build --remove-orphans
 
             # Prune dangling images
             docker image prune -f
 
-            # Verify API is healthy
-            sleep 15
+            # Verify API is healthy (allow extra time for Redis + model loading)
+            sleep 20
             docker compose ps
             curl -f http://localhost:8000/health && echo "✅ Deployment successful!"

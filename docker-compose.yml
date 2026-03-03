@@ -28,9 +28,6 @@ services:
 
   # ── API server (FastAPI + uvicorn) ─────────────────────────────────────────
   api:
-    build:
-      context: .
-      dockerfile: Dockerfile
     image: semantic-job-match:latest
     restart: unless-stopped
     ports:
@@ -64,9 +61,6 @@ services:
   # Scale with: docker compose up --scale worker=N
   worker:
     image: semantic-job-match:latest
-    build:
-      context: .
-      dockerfile: Dockerfile
     restart: unless-stopped
     environment:
       REDIS_URL: redis://redis:6379/0
