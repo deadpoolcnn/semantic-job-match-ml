@@ -15,7 +15,13 @@ from src.api.routes_v2 import router_v2
 from src.api.routes_logs import router as logs_router
 
 # Configure logging to file + console
-LOG_FILE = Path("/var/log/semantic-job-match/app.log")
+# Use /var/log in Docker, fallback to ./logs locally
+import os
+if os.access("/var/log", os.W_OK):
+    LOG_FILE = Path("/var/log/semantic-job-match/app.log")
+else:
+    LOG_FILE = Path("./logs/app.log")
+
 LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 logging.basicConfig(

@@ -6,12 +6,18 @@ Import this module to get the configured Celery app:
     from src.workers.celery_app import celery_app
 """
 import logging
+import os
 from pathlib import Path
 from celery import Celery
 from src.core.app_config import get_app_config
 
 # Configure logging for Celery workers
-LOG_FILE = Path("/var/log/semantic-job-match/app.log")
+# Use /var/log in Docker, fallback to ./logs locally
+if os.access("/var/log", os.W_OK):
+    LOG_FILE = Path("/var/log/semantic-job-match/app.log")
+else:
+    LOG_FILE = Path("./logs/app.log")
+
 LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 logging.basicConfig(

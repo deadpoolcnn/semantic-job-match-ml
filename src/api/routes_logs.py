@@ -10,7 +10,11 @@ from fastapi.responses import HTMLResponse, PlainTextResponse
 
 router = APIRouter(prefix="/logs", tags=["Logs"])
 
-LOG_FILE = Path("/var/log/semantic-job-match/app.log")
+# Use /var/log in Docker, fallback to ./logs locally
+if os.access("/var/log", os.W_OK):
+    LOG_FILE = Path("/var/log/semantic-job-match/app.log")
+else:
+    LOG_FILE = Path("./logs/app.log")
 
 
 @router.get("/view", response_class=HTMLResponse)
