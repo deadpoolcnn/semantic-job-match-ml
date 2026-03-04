@@ -1,0 +1,45 @@
+# Prometheus configuration for semantic-job-match-ml
+global:
+  scrape_interval: 15s  # 每 15 秒采集一次指标
+  evaluation_interval: 15s  # 每 15 秒评估一次规则
+  external_labels:
+    cluster: 'semantic-job-match'
+    environment: 'production'
+
+# Alertmanager configuration (可选)
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets: []
+
+# 规则文件（可选，用于告警）
+# rule_files:
+#   - "alerts.yml"
+
+# 采集目标配置
+scrape_configs:
+  # Prometheus 自身监控
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # FastAPI 应用监控
+  - job_name: 'semantic-job-match-api'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['api:8000']
+    metric_relabel_configs:
+      # 可选：过滤或重命名指标
+      - source_labels: [__name__]
+        regex: 'go_.*'  # 过滤掉 Go 相关指标（如果有）
+        action: drop
+
+  # Redis 监控（如果配置了 redis_exporter）
+  # - job_name: 'redis'
+  #   static_configs:
+  #     - targets: ['redis-exporter:9121']
+
+  # Node Exporter 监控（系统指标，可选）
+  # - job_name: 'node'
+  #   static_configs:
+  #     - targets: ['node-exporter:9100']

@@ -10,6 +10,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from prometheus_fastapi_instrumentator import Instrumentator
 from src.api.routes import router, get_five_dim_scorer
 from src.api.routes_v2 import router_v2
 from src.api.routes_logs import router as logs_router
@@ -60,6 +61,10 @@ app.add_middleware(
 app.include_router(router)
 app.include_router(router_v2)
 app.include_router(logs_router)
+
+# Prometheus metrics instrumentation
+# Exposes /metrics endpoint for Prometheus scraping
+Instrumentator().instrument(app).expose(app)
 
 
 @app.on_event("startup")
