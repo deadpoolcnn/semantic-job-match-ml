@@ -106,12 +106,12 @@ jobs:
             cd /www/wwwroot/semantic-job-match-ml
 
             # Write secrets to .env so docker compose always finds them
-            cat > .env <<EOF
-MOONSHOT_API_KEY=$MOONSHOT_API_KEY
-MOONSHOT_MODEL=$MOONSHOT_MODEL
-GRAFANA_ADMIN_PASSWORD=$GRAFANA_ADMIN_PASSWORD
-GRAFANA_ROOT_URL=https://monitor.fuppuccino.vip
-EOF
+            {
+              echo "MOONSHOT_API_KEY=$MOONSHOT_API_KEY"
+              echo "MOONSHOT_MODEL=$MOONSHOT_MODEL"
+              echo "GRAFANA_ADMIN_PASSWORD=$GRAFANA_ADMIN_PASSWORD"
+              echo "GRAFANA_ROOT_URL=https://monitor.fuppuccino.vip"
+            } > .env
             chmod 600 .env
 
             export IMAGE_NAME="ghcr.io/$GH_REPO:latest"
