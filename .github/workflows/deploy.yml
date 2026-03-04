@@ -106,7 +106,12 @@ jobs:
             cd /www/wwwroot/semantic-job-match-ml
 
             # Write secrets to .env so docker compose always finds them
-            printf 'MOONSHOT_API_KEY=%s\nMOONSHOT_MODEL=%s\nGRAFANA_ADMIN_PASSWORD=%s\n' "$MOONSHOT_API_KEY" "$MOONSHOT_MODEL" "$GRAFANA_ADMIN_PASSWORD" > .env
+            cat > .env <<EOF
+MOONSHOT_API_KEY=$MOONSHOT_API_KEY
+MOONSHOT_MODEL=$MOONSHOT_MODEL
+GRAFANA_ADMIN_PASSWORD=$GRAFANA_ADMIN_PASSWORD
+GRAFANA_ROOT_URL=https://monitor.fuppuccino.vip
+EOF
             chmod 600 .env
 
             export IMAGE_NAME="ghcr.io/$GH_REPO:latest"
@@ -123,15 +128,16 @@ jobs:
               docker stop "$name" 2>/dev/null && docker rm "$name" 2>/dev/null || true
             done
 
-            # Bring up all services (redis + api + worker)
+            # Bring up all services (redis + api + worker + prometheus + grafana)
+            # Use docker-compose (with hyphen) for compatibility with older Docker versions
             # --no-build: use the pulled image, never rebuild from source on the server
             # --remove-orphans: remove old compose containers no longer in compose file
-            MOONSHOT_API_KEY="$MOONSHOT_API_KEY" docker compose up -d --no-build --remove-orphans
+            docker-compose up -d --no-build --remove-orphans
 
             # Prune dangling images
             docker image prune -f
 
             # Verify API is healthy (allow extra time for Redis + model loading)
             sleep 20
-            docker compose ps
+            docker-compose ps
             curl -f http://localhost:8000/health && echo "✅ Deployment successful!"
