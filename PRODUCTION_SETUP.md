@@ -134,7 +134,7 @@ sudo htpasswd -c /etc/nginx/.htpasswd admin
 
 添加 A 记录：
 ```
-monitoring.fuppuccino.vip → 你的服务器IP
+monitor.fuppuccino.vip → 你的服务器IP
 ```
 
 ### 5. SSL 证书（如果使用独立域名）
@@ -205,7 +205,7 @@ curl http://localhost:3000/api/health      # Grafana
 
 ### 步骤 5：首次登录 Grafana
 
-访问 `https://monitoring.fuppuccino.vip`（或 `https://analysis.fuppuccino.vip/monitoring`）
+访问 `https://monitor.fuppuccino.vip`
 
 使用凭证：
 - 用户名: `admin`
@@ -249,9 +249,7 @@ curl http://localhost:9090/api/v1/targets | jq
 
 ### Grafana 仪表盘
 ```
-https://monitoring.fuppuccino.vip
-或
-https://analysis.fuppuccino.vip/monitoring
+https://monitor.fuppuccino.vip
 ```
 
 ### Prometheus 查询界面（如果配置了）
